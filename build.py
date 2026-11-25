@@ -3,6 +3,7 @@ import json, re, html, shutil, sys, math, hashlib
 from urllib.parse import urlparse
 from openpyxl import load_workbook
 from datetime import date
+from catalog_validation import validate_catalog
 ROOT=Path(__file__).resolve().parent
 E=lambda x:html.escape(str(x),quote=True)
 def rows(w,s):
@@ -32,6 +33,7 @@ def safe_url(v):
 def safe_json(x): return json.dumps(x,ensure_ascii=False).replace('<','\\u003c').replace('>','\\u003e').replace('&','\\u0026')
 def build(publish_root=False):
     w=load_workbook(ROOT/'catalog.xlsx',read_only=True,data_only=True)
+    validate_catalog(w)
     s={text(r['key']):text(r['value']) for r in rows(w,'Settings')}; base=s.get('base_url','').rstrip('/')
     if base and (urlparse(base).scheme!='https' or not urlparse(base).netloc or urlparse(base).query or urlparse(base).fragment): raise ValueError('base_url must be an HTTPS website URL')
     demo=flag(s.get('demo',1)); name=s.get('name') or 'المتجر'; currency=s.get('currency','EGP')
@@ -45,7 +47,7 @@ def build(publish_root=False):
     for r in rows(w,'Categories'):
         k=slug(r['id'])
         if k in ids or not text(r['name']): raise ValueError('Duplicate or blank category')
-        ids.add(k); cats.append(dict(id=k,name=text(r['name']),name_en=text(r.get('name_en')),order=integer(r['order']),home=flag(r['home']),limit=max(1,integer(r['limit']))))
+        ids.add(k); cats.append(dict(id=k,name=text(r['name']),name_en=text(r.get('name_en')),order=integer(r['order']),home=flag(r['home']),limit=max(1,integer(r['limit'])),recommendation_limit=integer(r.get('recommendation_limit') or s.get('recommendation_limit') or 5)))
     cats.sort(key=lambda x:x['order']); products=[]; seen=set()
     for r in rows(w,'Products'):
         k=slug(r['id']); c=slug(r['category']); price=num(r['price']); sale=num(r['sale_price']); n=text(r['name'])
@@ -53,9 +55,11 @@ def build(publish_root=False):
         seen.add(k); images=[safe_url(x) for x in text(r['images']).split('|') if x.strip()]
         if not images: images=['assets/placeholder.svg']
         day=r['date']; day=day.date().isoformat() if hasattr(day,'date') else text(day); date.fromisoformat(day)
-        if flag(r['active']): products.append(dict(id=k,name=n,name_en=text(r.get('name_en')),description_en=text(r.get('description_en')),keywords_en=text(r.get('keywords_en')),seo_title_en=text(r.get('seo_title_en')),seo_description_en=text(r.get('seo_description_en')),category=c,description=text(r['description']).replace(' - منتج تجريبي لعرض خصائص المتجر.',''),price=price,sale_price=sale,stock=integer(r['stock']),images=images,order=integer(r['order']),date=day,keywords=text(r['keywords']),seo_title=text(r['seo_title']) or f'{n} | {name}',seo_description=text(r['seo_description']) or text(r['description']) or f'{n} | {name}'))
+        if flag(r['active']): products.append(dict(id=k,name=n,name_en=text(r.get('name_en')),description_en=text(r.get('description_en')),keywords_en=text(r.get('keywords_en')),seo_title_en=text(r.get('seo_title_en')),seo_description_en=text(r.get('seo_description_en')),category=c,related_products=[x.strip() for x in text(r.get('related_products')).split('|') if x.strip()],description=text(r['description']).replace(' - منتج تجريبي لعرض خصائص المتجر.',''),price=price,sale_price=sale,stock=integer(r['stock']),images=images,order=integer(r['order']),date=day,keywords=text(r['keywords']),seo_title=text(r['seo_title']) or f'{n} | {name}',seo_description=text(r['seo_description']) or text(r['description']) or f'{n} | {name}'))
     products.sort(key=lambda p:p['order']); out=ROOT/'dist'
-    # validation before replacing output
+    if s.get('logo'): safe_url(s['logo'])
+    # Build in staging; keep prior published output if generation fails.
+    out=ROOT/'.dist-staging'
     if out.exists(): shutil.rmtree(out)
     out.mkdir(); shutil.copytree(ROOT/'src'/'assets',out/'assets'); shutil.copy(ROOT/'src'/'app.js',out/'app.js'); shutil.copy(ROOT/'src'/'style.css',out/'style.css')
     payment=[x.strip() for x in s.get('payment_methods','الدفع عند الاستلام').split('|') if x.strip()]
@@ -63,6 +67,10 @@ def build(publish_root=False):
     for pair in s.get('shipping_by_governorate','').split('|'):
         if pair.strip():
             g,v=pair.split('=',1); shipping_by_governorate[g.strip()]=num(v)
+    if 'Shipping' in w.sheetnames:
+        for row in rows(w,'Shipping'):
+            if row.get('cost') is not None and str(row['cost']).strip()!='':
+                shipping_by_governorate[text(row['governorate'])]=num(row['cost'])
     payment_methods_en=dict(zip(payment,[x.strip() for x in s.get('payment_methods_en','').split('|')])) if s.get('payment_methods_en') else {}
     config=dict(name=name,name_en=s.get('name_en',''),headline=s.get('headline','تسوق بسهولة'),headline_en=s.get('headline_en',''),description=s.get('description',''),description_en=s.get('description_en',''),payment_methods_en=payment_methods_en,currency=currency,whatsapp=wa,telegram=tg,shipping=num(s.get('shipping')),shipping_by_governorate=shipping_by_governorate,demo=demo,payment_methods=payment)
     (out/'data.js').write_text('window.STORE='+safe_json(dict(settings=config,categories=cats,products=products))+';',encoding='utf8')
@@ -93,19 +101,26 @@ def build(publish_root=False):
     def section(title,items,link,prefix=''):
         return f'<section><div class="section-head"><h2>{E(title)}</h2><a href="{E(link)}">عرض الكل ←</a></div><div class="rail">'+''.join(card(p,prefix) for p in items)+'</div></section>'
     def recommendations(category,exclude='',prefix='../'):
-        limit=max(1,min(10,integer(s.get('recommendation_limit') or 5)))
+        if not flag(s.get('show_recommendations',1)):return ''
         parts=[]
+        current=next((p for p in products if p['id']==exclude),None)
+        manual=current['related_products'] if current else []
+        if manual:
+            picked=[next((p for p in products if p['id']==key and p['id']!=exclude),None) for key in manual]
+            picked=[p for p in picked if p]
+            if picked:parts.append(section('منتجات مرتبطة',picked[:integer(s.get('recommendation_limit') or 5)],prefix+'products.html',prefix))
         for cat in sorted(cats,key=lambda cat:(cat['id']!=category,cat['order'])):
             if not exclude and cat['id']==category: continue
             items=[p for p in products if p['category']==cat['id'] and p['id']!=exclude]
+            items=[p for p in items if p['id'] not in manual]
             items.sort(key=lambda p:not bool(p['stock']))
             if not items: continue
-            title='منتجات مرتبطة' if cat['id']==category else cat['name']
-            parts.append(section(title,items[:limit],prefix+'categories/'+cat['id']+'.html',prefix))
+            title='منتجات مرتبطة' if cat['id']==category and not manual else cat['name']
+            parts.append(section(title,items[:cat['recommendation_limit']],prefix+'categories/'+cat['id']+'.html',prefix))
         return '<div class="recommendations"><h2>تصفح المزيد من التصنيفات</h2>'+''.join(parts)+'</div>' if parts else ''
     home=f'<div class="hero"><div><p class="eyebrow">تجربة تسوق بسيطة</p><h1>{E(s.get("headline","تسوق بسهولة"))}</h1><p>{E(s.get("description",""))}</p><a class="cta" href="products.html">تصفح المنتجات</a></div><div class="hero-mark" aria-hidden="true">◈</div></div>'
     sale=[p for p in products if p['sale_price']]
-    if sale:home+=section('العروض والخصومات',sale[:6],'products.html?sale=1')
+    if sale and flag(s.get('show_offers',1)):home+=section('العروض والخصومات',sale[:integer(s.get('offers_limit') or 6)],'products.html?sale=1')
     for c in cats:
         if c['home']:home+=section(c['name'],[p for p in products if p['category']==c['id']][:c['limit']],f'categories/{c["id"]}.html')
     page('index.html',name,s.get('description',''),home,'WebSite')
@@ -121,6 +136,16 @@ def build(publish_root=False):
     for k,v in {'privacy':('سياسة الخصوصية','تُحفظ السلة في بيانات الموقع بالمتصفح. عند إرسال الاستفسار أو الطلب، تنتقل البيانات إلى خدمة التواصل المختارة وفق سياسة الخصوصية الخاصة بها.'),'terms':('الشروط والأحكام','تخضع الطلبات للتأكيد من صاحب المتجر؛ الأسعار والتوفر قابلان للمراجعة.'),'shipping':('الشحن والتوصيل','يؤكد صاحب المتجر مدة الشحن وتكلفته النهائية قبل إتمام الطلب.'),'returns':('الاسترجاع والاستبدال','استفسر عن شروط الاسترجاع والاستبدال قبل تأكيد الطلب، مع مراعاة حقوق المستهلك المقررة قانوناً.'),'contact':('اتصل بنا','للاستفسار تواصل مع صاحب المتجر عبر قنوات الطلب المتاحة.')}.items():page(k+'.html',v[0]+' | '+name,v[1],f'<h1>{v[0]}</h1><p>{v[1]}</p>')
     (out/'robots.txt').write_text('User-agent: *\nAllow: /\n'+('Sitemap: '+base+'/sitemap.xml\n' if base and not demo else ''))
     (out/'sitemap.xml').write_text('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+(''.join(f'<url><loc>{E(base+("/" if p=="index.html" else "/"+p))}</loc></url>' for p in paths if p!='cart.html') if base else '')+'</urlset>',encoding='utf8')
+    final=ROOT/'dist'
+    backup=ROOT/'.dist-backup'
+    if backup.exists(): shutil.rmtree(backup)
+    if final.exists(): final.rename(backup)
+    try: out.rename(final)
+    except Exception:
+        if backup.exists(): backup.rename(final)
+        raise
+    if backup.exists(): shutil.rmtree(backup)
+    out=final
     if publish_root:
         for folder in ('assets','products','categories'):
             target=ROOT/folder
@@ -131,5 +156,9 @@ def build(publish_root=False):
         (ROOT/'.nojekyll').touch()
     print(f'Generated {len(paths)} pages, {len(products)} products, {len(cats)} categories.')
 if __name__=='__main__':
-    try:build('--publish-root' in sys.argv)
+    try:
+        if '--validate' in sys.argv:
+            validate_catalog(load_workbook(ROOT/'catalog.xlsx',read_only=True,data_only=True))
+            print('Catalog validation passed.')
+        else:build('--publish-root' in sys.argv)
     except Exception as e: print('Build failed:',e);sys.exit(1)
