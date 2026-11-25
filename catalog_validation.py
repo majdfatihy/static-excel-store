@@ -2,6 +2,8 @@
 import math, re
 from datetime import date, datetime
 from urllib.parse import urlparse
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent
 
 REQUIRED = {
     'Products': 'id name category description price sale_price stock images order date active keywords seo_title seo_description'.split(),
@@ -52,6 +54,10 @@ def validate_catalog(w):
     if settings.get('telegram') and not re.fullmatch(r'@?[A-Za-z0-9_]{5,32}',settings['telegram']):errors.append('Settings: invalid telegram username')
     if not re.fullmatch('[A-Z]{3}',settings.get('currency','EGP')):errors.append('Settings: invalid currency code')
     if settings.get('demo')=='0' and (not base or not(settings.get('whatsapp') or settings.get('telegram'))):errors.append('Settings: live mode requires URL and contact')
+    logo=settings.get('logo','')
+    if logo:
+        u=urlparse(logo)
+        if not (re.fullmatch(r'assets/[a-zA-Z0-9_./-]+',logo) and '..' not in logo and (ROOT/'src'/logo).is_file() or u.scheme=='https' and u.netloc and not u.username and not u.password):errors.append('Settings: invalid logo URL or missing asset')
     cat_ids=set()
     for i,r in c:
         tag=f'Categories row {i}';k=val(r.get('id'))
@@ -81,7 +87,7 @@ def validate_catalog(w):
             image=image.strip()
             if not image:continue
             u=urlparse(image)
-            if not (re.fullmatch(r'assets/[a-zA-Z0-9_./-]+',image) and '..' not in image or u.scheme=='https' and u.netloc and not u.username and not u.password):errors.append(f'{tag}: invalid image URL {image}')
+            if not (re.fullmatch(r'assets/[a-zA-Z0-9_./-]+',image) and '..' not in image and (ROOT/'src'/image).is_file() or u.scheme=='https' and u.netloc and not u.username and not u.password):errors.append(f'{tag}: invalid image URL {image}')
     for i,r in p:
         ids=[x.strip() for x in val(r.get('related_products')).split('|') if x.strip()]
         if len(ids)!=len(set(ids)) or any(k not in product_ids or k==val(r.get('id')) for k in ids):errors.append(f'Products row {i}: invalid related_products (unknown, duplicate, or self-reference)')

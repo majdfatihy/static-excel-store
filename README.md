@@ -31,3 +31,5 @@
 - Categories: recommendation_limit sets how many products each category contributes (1–10).
 - Settings: show_recommendations, show_offers and offers_limit control sections. Shipping sheet: blank cost uses the existing configured fallback; an explicit 0 means free delivery; a filled row overrides the legacy setting for that governorate.
 - Run validate.bat to check the file without building. build.bat rebuilds after validation; failed generation leaves the previous dist intact. Publish generated root files as documented above.
+
+- Excel v0.3 مرفق باسم catalog.xlsx. افتح validate.bat للفحص، وpreview.bat لتوليد نسخة محلية ومعاينتها دون تعديل ملفات النشر، وbuild.bat لتوليد ملفات النشر بعد اعتماد البيانات. الاختبارات: python -m unittest test_catalog.
