@@ -25,6 +25,13 @@ class CatalogTests(unittest.TestCase):
             validate_catalog(w)
         w.close()
 
+    def test_invalid_theme(self):
+        w=load_workbook(ROOT/'catalog.xlsx')
+        w['Settings'].append(['accent_light','red;unsafe'])
+        with self.assertRaisesRegex(ValueError,'accent_light'):
+            validate_catalog(w)
+        w.close()
+
     def test_full_build_and_safe_failure(self):
         with tempfile.TemporaryDirectory() as folder:
             t=Path(folder)
@@ -40,11 +47,17 @@ class CatalogTests(unittest.TestCase):
             self.assertTrue(data['products'])
             w=load_workbook(t/'catalog.xlsx')
             ship=w['Shipping']; ship.cell(2,3,47)
+            w['Settings'].append(['accent_light','#123456'])
+            w['Settings'].append(['policy_privacy_body','Test <privacy>'])
+            w['Settings'].append(['policy_privacy_body_en','Privacy test'])
             w.save(t/'catalog.xlsx'); w.close()
             result=run()
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             data=json.loads((t/'dist/data.js').read_text(encoding='utf8').removeprefix('window.STORE=').removesuffix(';'))
             self.assertEqual(data['settings']['shipping_by_governorate']['القاهرة'],47)
+            self.assertIn('--accent:#123456',(t/'dist/style.css').read_text(encoding='utf8'))
+            self.assertIn('Test &lt;privacy&gt;',(t/'dist/privacy.html').read_text(encoding='utf8'))
+            self.assertEqual(data['settings']['policy_translations']['Test <privacy>'],'Privacy test')
             safe=(t/'dist/index.html').read_bytes()
             w=load_workbook(t/'catalog.xlsx'); w['Products'].cell(2,5,-1); w.save(t/'catalog.xlsx');w.close()
             self.assertNotEqual(run().returncode,0)

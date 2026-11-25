@@ -33,3 +33,9 @@
 - Run validate.bat to check the file without building. build.bat rebuilds after validation; failed generation leaves the previous dist intact. Publish generated root files as documented above.
 
 - Excel v0.3 مرفق باسم catalog.xlsx. افتح validate.bat للفحص، وpreview.bat لتوليد نسخة محلية ومعاينتها دون تعديل ملفات النشر، وbuild.bat لتوليد ملفات النشر بعد اعتماد البيانات. الاختبارات: python -m unittest test_catalog.
+
+## Excel v0.4: إدارة وتحديث تلقائي
+- للنشر التلقائي: Settings > Pages > Source > GitHub Actions (مرة واحدة). بعد ذلك ارفع catalog.xlsx إلى main فقط؛ يتم الفحص والبناء ثم النشر المباشر إذا نجحت الاختبارات. قبل تغيير المصدر سيبقى نشر الفرع الحالي كما هو، ويمكن استخدام ملفات المعاينة من Actions. لا تحتاج إلى PAT أو بيانات دخول داخل الملفات.
+- GitHub Pages مخصص للمعاينة، ويتوقف مسار النشر المخصص إذا كانت demo ليست 1.
+- في Settings، حقلا accent_light وaccent_dark اختياريان بلون HEX مثل #08665e. إذا تركتهما فارغين تبقى الألوان الحالية. يتم اختيار لون نص الأزرار آلياً وفق التباين.
+- لتخصيص صفحات privacy, terms, shipping, returns, contact: أضف المفاتيح policy_<id>_title وpolicy_<id>_body، والترجمة الاختيارية policy_<id>_title_en وpolicy_<id>_body_en. النص يعرض كنص عادي وليس HTML، وتظل السياسات الحالية إذا تركت الحقول فارغة.

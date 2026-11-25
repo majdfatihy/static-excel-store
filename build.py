@@ -72,7 +72,27 @@ def build(publish_root=False):
             if row.get('cost') is not None and str(row['cost']).strip()!='':
                 shipping_by_governorate[text(row['governorate'])]=num(row['cost'])
     payment_methods_en=dict(zip(payment,[x.strip() for x in s.get('payment_methods_en','').split('|')])) if s.get('payment_methods_en') else {}
-    config=dict(name=name,name_en=s.get('name_en',''),headline=s.get('headline','تسوق بسهولة'),headline_en=s.get('headline_en',''),description=s.get('description',''),description_en=s.get('description_en',''),payment_methods_en=payment_methods_en,currency=currency,whatsapp=wa,telegram=tg,shipping=num(s.get('shipping')),shipping_by_governorate=shipping_by_governorate,demo=demo,payment_methods=payment)
+    policies={'privacy':('سياسة الخصوصية','تُحفظ السلة في بيانات الموقع بالمتصفح. عند إرسال الاستفسار أو الطلب، تنتقل البيانات إلى خدمة التواصل المختارة وفق سياسة الخصوصية الخاصة بها.'),'terms':('الشروط والأحكام','تخضع الطلبات للتأكيد من صاحب المتجر؛ الأسعار والتوفر قابلان للمراجعة.'),'shipping':('الشحن والتوصيل','يؤكد صاحب المتجر مدة الشحن وتكلفته النهائية قبل إتمام الطلب.'),'returns':('الاسترجاع والاستبدال','استفسر عن شروط الاسترجاع والاستبدال قبل تأكيد الطلب، مع مراعاة حقوق المستهلك المقررة قانوناً.'),'contact':('اتصل بنا','للاستفسار تواصل مع صاحب المتجر عبر قنوات الطلب المتاحة.')}
+    policy_translations={}
+    for key,(title,body) in list(policies.items()):
+        title=s.get('policy_'+key+'_title') or title
+        body=s.get('policy_'+key+'_body') or body
+        policies[key]=(title,body)
+        for source,suffix in [(title,'title_en'),(body,'body_en')]:
+            if s.get('policy_'+key+'_'+suffix):policy_translations[source]=s['policy_'+key+'_'+suffix]
+    def foreground(color):
+        rgb=[int(color[i:i+2],16)/255 for i in (1,3,5)]
+        rgb=[x/12.92 if x<=.04045 else ((x+.055)/1.055)**2.4 for x in rgb]
+        lum=sum(x*y for x,y in zip(rgb,(.2126,.7152,.0722)))
+        return '#000000' if (lum+.05)/.05 >= 1.05/(lum+.05) else '#ffffff'
+    theme=''
+    for key,selector in [('accent_light',':root'),('accent_dark','html[data-theme=dark]')]:
+        color=s.get(key,'')
+        if color:
+            theme+=selector+'{--accent:'+color+';--on:'+foreground(color)+';--focus:'+color+'}'
+    if theme:
+        with (out/'style.css').open('a',encoding='utf8') as css:css.write('\n'+theme+'\n')
+    config=dict(policy_translations=policy_translations,name=name,name_en=s.get('name_en',''),headline=s.get('headline','تسوق بسهولة'),headline_en=s.get('headline_en',''),description=s.get('description',''),description_en=s.get('description_en',''),payment_methods_en=payment_methods_en,currency=currency,whatsapp=wa,telegram=tg,shipping=num(s.get('shipping')),shipping_by_governorate=shipping_by_governorate,demo=demo,payment_methods=payment)
     (out/'data.js').write_text('window.STORE='+safe_json(dict(settings=config,categories=cats,products=products))+';',encoding='utf8')
     rev=hashlib.sha256(b''.join((out/f).read_bytes() for f in ('style.css','data.js','app.js'))).hexdigest()[:12]
     paths=[]
@@ -133,9 +153,10 @@ def build(publish_root=False):
         page(f'products/{p["id"]}.html',p['seo_title'],p['seo_description'],f'<a href="../categories/{p["category"]}.html">العودة للتصنيف</a><div class="detail"><div class="gallery">{imgs}</div><div><h1>{E(p["name"])}</h1><p>{E(p["description"])}</p><p class="price">{p["sale_price"] or p["price"]:g} {currency}</p><p>{"متوفر" if p["stock"] else "غير متوفر"}</p><div class="buy"><input type="number" min="1" max="{p["stock"]}" value="1" aria-label="الكمية"><button data-add="{p["id"]}" {"disabled" if not p["stock"] else ""}>أضف للسلة</button></div><button data-share>مشاركة الرابط</button></div></div>'+recommendations(p['category'],p['id']),'Product',p)
     gov='القاهرة|الجيزة|الإسكندرية|الدقهلية|البحيرة|الشرقية|الغربية|المنوفية|كفر الشيخ|القليوبية|دمياط|بورسعيد|الإسماعيلية|السويس|شمال سيناء|جنوب سيناء|مطروح|الفيوم|بني سويف|المنيا|أسيوط|سوهاج|قنا|الأقصر|أسوان|البحر الأحمر|الوادي الجديد'.split('|')
     page('cart.html','السلة | '+name,'مراجعة المنتجات والطلب','<h1>سلة التسوق</h1><div class="checkout"><div id="cart-items"></div><form id="order"><h2>بيانات الطلب</h2><label>الاسم<input name="name" maxlength="100"></label><label>المحافظة<select name="governorate"><option value="">اختر المحافظة</option>'+''.join(f'<option>{g}</option>' for g in gov)+'</select></label><label>الهاتف<input name="phone" type="tel" pattern="[+0-9\\s\\(\\)\\-]{8,20}"></label><label>العنوان<textarea name="address" maxlength="300"></textarea></label><label>طريقة الدفع<select name="payment">'+''.join(f'<option>{E(x)}</option>' for x in config['payment_methods'])+'</select></label><p id="total"></p><button value="wa">إرسال عبر واتساب</button><button value="tg">إرسال عبر تيليجرام</button><p id="order-note" role="status"></p></form></div>')
-    for k,v in {'privacy':('سياسة الخصوصية','تُحفظ السلة في بيانات الموقع بالمتصفح. عند إرسال الاستفسار أو الطلب، تنتقل البيانات إلى خدمة التواصل المختارة وفق سياسة الخصوصية الخاصة بها.'),'terms':('الشروط والأحكام','تخضع الطلبات للتأكيد من صاحب المتجر؛ الأسعار والتوفر قابلان للمراجعة.'),'shipping':('الشحن والتوصيل','يؤكد صاحب المتجر مدة الشحن وتكلفته النهائية قبل إتمام الطلب.'),'returns':('الاسترجاع والاستبدال','استفسر عن شروط الاسترجاع والاستبدال قبل تأكيد الطلب، مع مراعاة حقوق المستهلك المقررة قانوناً.'),'contact':('اتصل بنا','للاستفسار تواصل مع صاحب المتجر عبر قنوات الطلب المتاحة.')}.items():page(k+'.html',v[0]+' | '+name,v[1],f'<h1>{v[0]}</h1><p>{v[1]}</p>')
+    for k,(title,body) in policies.items():
+        page(k+'.html',title+' | '+name,body,f'<h1>{E(title)}</h1><p class="policy-body" style="white-space:pre-wrap">{E(body)}</p>')
     (out/'robots.txt').write_text('User-agent: *\nAllow: /\n'+('Sitemap: '+base+'/sitemap.xml\n' if base and not demo else ''))
-    (out/'sitemap.xml').write_text('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+(''.join(f'<url><loc>{E(base+("/" if p=="index.html" else "/"+p))}</loc></url>' for p in paths if p!='cart.html') if base else '')+'</urlset>',encoding='utf8')
+    (out/'sitemap.xml').write_text('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+(''.join(f'<url><loc>{E(base+("/" if p=="index.html" else "/"+p))}</loc></url>' for p in paths if p!='cart.html') if base and not demo else '')+'</urlset>',encoding='utf8')
     final=ROOT/'dist'
     backup=ROOT/'.dist-backup'
     if backup.exists(): shutil.rmtree(backup)

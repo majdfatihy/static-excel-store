@@ -58,6 +58,8 @@ def validate_catalog(w):
     if logo:
         u=urlparse(logo)
         if not (re.fullmatch(r'assets/[a-zA-Z0-9_./-]+',logo) and '..' not in logo and (ROOT/'src'/logo).is_file() or u.scheme=='https' and u.netloc and not u.username and not u.password):errors.append('Settings: invalid logo URL or missing asset')
+    for key in ['accent_light','accent_dark']:
+        if settings.get(key) and not re.fullmatch(r'#[0-9a-fA-F]{6}',settings[key]):errors.append(f'Settings: {key} must be a six-digit HEX color')
     cat_ids=set()
     for i,r in c:
         tag=f'Categories row {i}';k=val(r.get('id'))
