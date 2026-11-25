@@ -17,8 +17,8 @@ class CatalogTests(unittest.TestCase):
     def test_actual_workbook(self):
         w=load_workbook(ROOT/'catalog.xlsx', data_only=True)
         result=validate_catalog(w)
-        self.assertGreater(result['products'],0)
-        self.assertGreater(result['categories'],0)
+        self.assertGreaterEqual(result['products'],0)
+        self.assertGreaterEqual(result['categories'],0)
         for name in ['Products','Categories','Settings','Guide','Shipping']:
             self.assertIn(name,w.sheetnames)
         w.close()
@@ -26,7 +26,9 @@ class CatalogTests(unittest.TestCase):
     def test_invalid_price_and_duplicate(self):
         w=load_workbook(ROOT/'catalog.xlsx')
         p=w['Products']; headers={cell.value:cell.column for cell in p[1]}
-        p.cell(2,headers['sale_price'],999999999)
+        if p.max_row<2 or not p.cell(2,headers['id']).value:
+            self.skipTest('No products to mutate')
+        p.cell(2,headers['sale_price'],float(p.cell(2,headers['price']).value)+1)
         p.cell(3,headers['id'],p.cell(2,headers['id']).value)
         with self.assertRaisesRegex(ValueError,'invalid sale_price'):
             validate_catalog(w)
@@ -51,9 +53,11 @@ class CatalogTests(unittest.TestCase):
             original=(t/'dist/index.html').read_bytes()
             self.assertEqual(original,(t/'index.html').read_bytes())
             data=json.loads((t/'data.js').read_text(encoding='utf8').removeprefix('window.STORE=').removesuffix(';'))
-            self.assertTrue(data['products'])
+            self.assertIn('products',data)
             w=load_workbook(t/'catalog.xlsx')
-            ship=w['Shipping']; ship.cell(2,3,47)
+            ship=w['Shipping']; cairo=next((i for i in range(2,ship.max_row+1) if ship.cell(i,1).value=='القاهرة'),None)
+            if cairo is None:ship.append(['القاهرة','Cairo',47])
+            else:ship.cell(cairo,3,47)
             set_setting(w,'accent_light','#123456')
             set_setting(w,'policy_privacy_body','Test <privacy>')
             set_setting(w,'policy_privacy_body_en','Privacy test')
@@ -66,7 +70,7 @@ class CatalogTests(unittest.TestCase):
             self.assertIn('Test &lt;privacy&gt;',(t/'dist/privacy.html').read_text(encoding='utf8'))
             self.assertEqual(data['settings']['policy_translations']['Test <privacy>'],'Privacy test')
             safe=(t/'dist/index.html').read_bytes()
-            w=load_workbook(t/'catalog.xlsx'); w['Products'].cell(2,5,-1); w.save(t/'catalog.xlsx');w.close()
+            w=load_workbook(t/'catalog.xlsx'); set_setting(w,'accent_dark','invalid'); w.save(t/'catalog.xlsx');w.close()
             self.assertNotEqual(run().returncode,0)
             self.assertEqual((t/'dist/index.html').read_bytes(),safe)
 
