@@ -32,14 +32,15 @@ def safe_url(v):
 def safe_json(x): return json.dumps(x,ensure_ascii=False).replace('<','\\u003c').replace('>','\\u003e').replace('&','\\u0026')
 def build():
     w=load_workbook(ROOT/'catalog.xlsx',read_only=True,data_only=True)
-    s={text(r['key']):text(r['value']) for r in rows(w,'Settings')}; base=s.get('base_url','').rstrip('/')
+    s={text(r['key']):text(r['value']) for r in rows(w,'Settings')}; base=(s.get('base_url') or 'https://dev.majdfatihy.com/static-excel-store').rstrip('/')
     if base and (urlparse(base).scheme!='https' or not urlparse(base).netloc or urlparse(base).query or urlparse(base).fragment): raise ValueError('base_url must be an HTTPS website URL')
     demo=flag(s.get('demo',1)); name=s.get('name') or 'متجر نموذج'; currency=s.get('currency','EGP')
     if not re.fullmatch('[A-Z]{3}',currency): raise ValueError('Currency must be 3 uppercase letters')
-    wa=s.get('whatsapp',''); tg=s.get('telegram','').lstrip('@')
+    wa=s.get('whatsapp') or '201066732514'; tg=(s.get('telegram') or 'MajdFatihy').lstrip('@')
     if wa and not re.fullmatch(r'[1-9][0-9]{7,14}',wa): raise ValueError('Invalid WhatsApp number')
     if tg and not re.fullmatch(r'[A-Za-z0-9_]{5,32}',tg): raise ValueError('Invalid Telegram username')
     if not demo and (not base or not(wa or tg)): raise ValueError('Live mode needs base URL and order destination')
+    if s.get('description')=='متجر تجريبي قابل للتخصيص وإدارة المنتجات من Excel': s['description']='تصفح المنتجات والعروض حسب التصنيف والسعر، واختر ما يناسبك.'
     cats=[]; ids=set()
     for r in rows(w,'Categories'):
         k=slug(r['id'])
@@ -52,12 +53,18 @@ def build():
         seen.add(k); images=[safe_url(x) for x in text(r['images']).split('|') if x.strip()]
         if not images: images=['assets/placeholder.svg']
         day=r['date']; day=day.date().isoformat() if hasattr(day,'date') else text(day); date.fromisoformat(day)
-        if flag(r['active']): products.append(dict(id=k,name=n,category=c,description=text(r['description']),price=price,sale_price=sale,stock=integer(r['stock']),images=images,order=integer(r['order']),date=day,keywords=text(r['keywords']),seo_title=text(r['seo_title']) or f'{n} | {name}',seo_description=text(r['seo_description']) or f'{n} - {text(r["description"])} | {name}'))
+        if flag(r['active']): products.append(dict(id=k,name=n,category=c,description=text(r['description']).replace(' - منتج تجريبي لعرض خصائص المتجر.',''),price=price,sale_price=sale,stock=integer(r['stock']),images=images,order=integer(r['order']),date=day,keywords=text(r['keywords']),seo_title=text(r['seo_title']) or f'{n} | {name}',seo_description=text(r['seo_description']) or f'{n} - {text(r["description"]).replace(" - منتج تجريبي لعرض خصائص المتجر.","")} | {name}'))
     products.sort(key=lambda p:p['order']); out=ROOT/'dist'
     # validation before replacing output
     if out.exists(): shutil.rmtree(out)
     out.mkdir(); shutil.copytree(ROOT/'src'/'assets',out/'assets'); shutil.copy(ROOT/'src'/'app.js',out/'app.js'); shutil.copy(ROOT/'src'/'style.css',out/'style.css')
-    config=dict(name=name,currency=currency,whatsapp=wa,telegram=tg,shipping=num(s.get('shipping')),demo=demo,payment_methods=[x.strip() for x in s.get('payment_methods','الدفع عند الاستلام').split('|') if x.strip()])
+    payment=[x.strip() for x in s.get('payment_methods','الدفع عند الاستلام').split('|') if x.strip()]
+    if payment==['الدفع عند الاستلام','تحويل بنكي']: payment+=['فودافون كاش','إنستا باي']
+    shipping_by_governorate={}
+    for pair in s.get('shipping_by_governorate','').split('|'):
+        if pair.strip():
+            g,v=pair.split('=',1); shipping_by_governorate[g.strip()]=num(v)
+    config=dict(name=name,currency=currency,whatsapp=wa,telegram=tg,shipping=num(s.get('shipping')),shipping_by_governorate=shipping_by_governorate,demo=demo,payment_methods=payment)
     (out/'data.js').write_text('window.STORE='+safe_json(dict(settings=config,categories=cats,products=products))+';',encoding='utf8')
     paths=[]
     def page(path,title,desc,body,kind='WebPage',product=None):
@@ -72,9 +79,9 @@ def build():
             schema.update(name=product['name'],image=[url(i) for i in product['images']],sku=product['id'],offers={'@type':'Offer','priceCurrency':currency,'price':product['sale_price'] or product['price'],'availability':'https://schema.org/'+('InStock' if product['stock'] else 'OutOfStock')})
         meta=f'<meta name="description" content="{E(desc[:160])}"><meta property="og:title" content="{E(title)}"><meta property="og:description" content="{E(desc[:160])}"><meta property="og:type" content="{"product" if product else "website"}"><meta name="twitter:card" content="summary_large_image">'
         if canonical: meta+=f'<link rel="canonical" href="{E(canonical)}"><meta property="og:url" content="{E(canonical)}">'
-        if product:meta+=f'<meta property="og:image" content="{E(url(product["images"][0]))}">'
+        if product:meta+=f'<meta property="og:image" content="{E(url(product["images"][0]))}"><meta name="twitter:image" content="{E(url(product["images"][0]))}">'
         if demo:meta+='<meta name="robots" content="noindex,nofollow">'
-        banner='<aside class="demo">نسخة تجريبية — المنتجات والأسعار للعرض فقط</aside>' if demo else ''
+        banner=''
         output=f'<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{E(title)}</title>{meta}<script type="application/ld+json">{safe_json(schema)}</script><link rel="stylesheet" href="{prefix}style.css"><script defer src="{prefix}data.js"></script><script defer src="{prefix}app.js"></script></head><body data-root="{prefix}">{banner}<header><div class="top"><a class="brand" href="{prefix}index.html">{brand}</a><form class="search" action="{prefix}products.html"><input name="q" aria-label="بحث المنتجات" placeholder="ابحث عن منتج…" autocomplete="off"><button>بحث</button><div class="suggest" hidden></div></form><button id="theme" aria-label="تغيير المظهر">المظهر</button><a class="cart" href="{prefix}cart.html">السلة <span id="count">0</span></a></div><nav><a href="{prefix}index.html">الرئيسية</a><a href="{prefix}products.html">كل المنتجات</a>{nav}</nav></header><main>{body}</main><footer><b>{E(name)}</b><div>{foot}</div></footer><div id="toast" role="status"></div></body></html>'
         f=out/path;f.parent.mkdir(parents=True,exist_ok=True);f.write_text(output,encoding='utf8');paths.append(path)
     def card(p,prefix=''):
@@ -99,7 +106,7 @@ def build():
     page('cart.html','السلة | '+name,'مراجعة المنتجات والطلب','<h1>سلة التسوق</h1><div class="checkout"><div id="cart-items"></div><form id="order"><h2>بيانات الطلب</h2><label>الاسم<input name="name" required maxlength="100"></label><label>المحافظة<select name="governorate" required><option value="">اختر المحافظة</option>'+''.join(f'<option>{g}</option>' for g in gov)+'</select></label><label>الهاتف<input name="phone" type="tel" required pattern="[+0-9 ()-]{8,20}"></label><label>العنوان<textarea name="address" required maxlength="300"></textarea></label><label>طريقة الدفع<select name="payment">'+''.join(f'<option>{E(x)}</option>' for x in config['payment_methods'])+'</select></label><p id="total"></p><button value="wa">إرسال عبر واتساب</button><button value="tg">نسخ الطلب وفتح تيليجرام</button><p id="order-note" role="status"></p></form></div>')
     for k,v in {'privacy':('سياسة الخصوصية','تُحفظ السلة محلياً في المتصفح. بيانات الطلب تخرج إلى خدمة التواصل التي يختارها العميل عند إرسال الطلب.'),'terms':('الشروط والأحكام','تخضع الطلبات للتأكيد من صاحب المتجر؛ الأسعار والتوفر قابلان للمراجعة.'),'shipping':('الشحن والتوصيل','يؤكد صاحب المتجر مدة الشحن وتكلفته النهائية قبل إتمام الطلب.'),'returns':('الاسترجاع والاستبدال','يجب على صاحب المتجر إضافة سياسة الاسترجاع الفعلية وفق القوانين المعمول بها.'),'contact':('اتصل بنا','للاستفسار تواصل مع صاحب المتجر عبر قنوات الطلب المتاحة.')}.items():page(k+'.html',v[0]+' | '+name,v[1],f'<h1>{v[0]}</h1><p>{v[1]}</p>')
     (out/'robots.txt').write_text('User-agent: *\nDisallow: /\n' if demo else 'User-agent: *\nDisallow: /cart.html\n'+('Sitemap: '+base+'/sitemap.xml\n' if base else ''))
-    (out/'sitemap.xml').write_text('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+(''.join(f'<url><loc>{E(base+"/"+p)}</loc></url>' for p in paths if p!='cart.html') if base and not demo else '')+'</urlset>',encoding='utf8')
+    (out/'sitemap.xml').write_text('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+(''.join(f'<url><loc>{E(base+"/"+p)}</loc></url>' for p in paths if p!='cart.html') if base else '')+'</urlset>',encoding='utf8')
     print(f'Generated {len(paths)} pages, {len(products)} products, {len(cats)} categories.')
 if __name__=='__main__':
     try:build()
