@@ -45,7 +45,7 @@ def build(publish_root=False):
     for r in rows(w,'Categories'):
         k=slug(r['id'])
         if k in ids or not text(r['name']): raise ValueError('Duplicate or blank category')
-        ids.add(k); cats.append(dict(id=k,name=text(r['name']),order=integer(r['order']),home=flag(r['home']),limit=max(1,integer(r['limit']))))
+        ids.add(k); cats.append(dict(id=k,name=text(r['name']),name_en=text(r.get('name_en')),order=integer(r['order']),home=flag(r['home']),limit=max(1,integer(r['limit']))))
     cats.sort(key=lambda x:x['order']); products=[]; seen=set()
     for r in rows(w,'Products'):
         k=slug(r['id']); c=slug(r['category']); price=num(r['price']); sale=num(r['sale_price']); n=text(r['name'])
@@ -53,7 +53,7 @@ def build(publish_root=False):
         seen.add(k); images=[safe_url(x) for x in text(r['images']).split('|') if x.strip()]
         if not images: images=['assets/placeholder.svg']
         day=r['date']; day=day.date().isoformat() if hasattr(day,'date') else text(day); date.fromisoformat(day)
-        if flag(r['active']): products.append(dict(id=k,name=n,category=c,description=text(r['description']).replace(' - منتج تجريبي لعرض خصائص المتجر.',''),price=price,sale_price=sale,stock=integer(r['stock']),images=images,order=integer(r['order']),date=day,keywords=text(r['keywords']),seo_title=text(r['seo_title']) or f'{n} | {name}',seo_description=text(r['seo_description']) or text(r['description']) or f'{n} | {name}'))
+        if flag(r['active']): products.append(dict(id=k,name=n,name_en=text(r.get('name_en')),description_en=text(r.get('description_en')),keywords_en=text(r.get('keywords_en')),seo_title_en=text(r.get('seo_title_en')),seo_description_en=text(r.get('seo_description_en')),category=c,description=text(r['description']).replace(' - منتج تجريبي لعرض خصائص المتجر.',''),price=price,sale_price=sale,stock=integer(r['stock']),images=images,order=integer(r['order']),date=day,keywords=text(r['keywords']),seo_title=text(r['seo_title']) or f'{n} | {name}',seo_description=text(r['seo_description']) or text(r['description']) or f'{n} | {name}'))
     products.sort(key=lambda p:p['order']); out=ROOT/'dist'
     # validation before replacing output
     if out.exists(): shutil.rmtree(out)
@@ -63,7 +63,8 @@ def build(publish_root=False):
     for pair in s.get('shipping_by_governorate','').split('|'):
         if pair.strip():
             g,v=pair.split('=',1); shipping_by_governorate[g.strip()]=num(v)
-    config=dict(name=name,currency=currency,whatsapp=wa,telegram=tg,shipping=num(s.get('shipping')),shipping_by_governorate=shipping_by_governorate,demo=demo,payment_methods=payment)
+    payment_methods_en=dict(zip(payment,[x.strip() for x in s.get('payment_methods_en','').split('|')])) if s.get('payment_methods_en') else {}
+    config=dict(name=name,name_en=s.get('name_en',''),headline=s.get('headline','تسوق بسهولة'),headline_en=s.get('headline_en',''),description=s.get('description',''),description_en=s.get('description_en',''),payment_methods_en=payment_methods_en,currency=currency,whatsapp=wa,telegram=tg,shipping=num(s.get('shipping')),shipping_by_governorate=shipping_by_governorate,demo=demo,payment_methods=payment)
     (out/'data.js').write_text('window.STORE='+safe_json(dict(settings=config,categories=cats,products=products))+';',encoding='utf8')
     rev=hashlib.sha256(b''.join((out/f).read_bytes() for f in ('style.css','data.js','app.js'))).hexdigest()[:12]
     paths=[]
