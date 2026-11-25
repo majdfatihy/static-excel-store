@@ -6,6 +6,13 @@ from catalog_validation import validate_catalog
 
 ROOT=Path(__file__).resolve().parent
 
+def set_setting(w,key,value):
+    for row in w['Settings'].iter_rows(min_row=2):
+        if row[0].value==key:
+            row[1].value=value
+            return
+    w['Settings'].append([key,value])
+
 class CatalogTests(unittest.TestCase):
     def test_actual_workbook(self):
         w=load_workbook(ROOT/'catalog.xlsx', data_only=True)
@@ -27,7 +34,7 @@ class CatalogTests(unittest.TestCase):
 
     def test_invalid_theme(self):
         w=load_workbook(ROOT/'catalog.xlsx')
-        w['Settings'].append(['accent_light','red;unsafe'])
+        set_setting(w,'accent_light','red;unsafe')
         with self.assertRaisesRegex(ValueError,'accent_light'):
             validate_catalog(w)
         w.close()
@@ -47,9 +54,9 @@ class CatalogTests(unittest.TestCase):
             self.assertTrue(data['products'])
             w=load_workbook(t/'catalog.xlsx')
             ship=w['Shipping']; ship.cell(2,3,47)
-            w['Settings'].append(['accent_light','#123456'])
-            w['Settings'].append(['policy_privacy_body','Test <privacy>'])
-            w['Settings'].append(['policy_privacy_body_en','Privacy test'])
+            set_setting(w,'accent_light','#123456')
+            set_setting(w,'policy_privacy_body','Test <privacy>')
+            set_setting(w,'policy_privacy_body_en','Privacy test')
             w.save(t/'catalog.xlsx'); w.close()
             result=run()
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
