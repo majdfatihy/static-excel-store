@@ -1,0 +1,33 @@
+name: Excel catalog checks
+on:
+  push:
+    branches: [main]
+    paths:
+      - catalog.xlsx
+      - build.py
+      - catalog_validation.py
+      - test_catalog.py
+      - requirements.txt
+      - 'src/**'
+      - '.github/workflows/catalog-checks.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - run: python build.py --validate
+      - run: python -m unittest -v test_catalog
+      - run: python build.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: storefront-preview
+          path: dist/
+          retention-days: 3
